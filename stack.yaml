@@ -2,17 +2,20 @@ packages:
 - '.'
 extra-deps:
 - git: git@github.com:computationwithboundedresources/slogic.git
-  commit: dc55be863f9ac5a54476450f2b66930d138f5b7b
+  commit: a925dd76e0432f13b105aa44657cd046cf959c9a
 - git: git@github.com:computationwithboundedresources/tct-core.git
   commit: 5aba80ab385febb66f7236b99a1acf9db159a9d1
 - git: git@github.com:computationwithboundedresources/tct-common.git
   commit: dbdbddf53b5c62c4c983a8025b7ef388f6f75563
 - git: git@github.com:computationwithboundedresources/tct-its.git
-  commit: 23ea9d396ac44056147bd90709270bab556ca59c
+  commit: cec50e1e83346089779081e5479bb79ab1638fb9
 - git: git@github.com:computationwithboundedresources/lare.git
-  commit: 7baf83093a3bfb0b1f849d0628981c7b262a2185
+  commit: a602d1dc789a8649a12af761b4bd13be1b4bc60a
 - fgl-visualize-0.1.0.1
 - dotgen-0.4.2
 resolver: lts-5.12
 # allow-newer: true
+ghc-options:
+  "$locals": -Wall -fno-warn-orphans -O3 -threaded
+  "$everything": -O3
 

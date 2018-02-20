@@ -5,6 +5,7 @@ module Tct.Its.Processor.Looptree where
 
 
 import           Data.Either                         (partitionEithers)
+import           Data.Function                       (on)
 import qualified Data.IntMap.Strict                  as IM
 import           Data.List                           ((\\))
 import qualified Data.Map.Strict                     as M
@@ -193,7 +194,7 @@ infer prob = go0 (IM.keys $ irules_ prob) where
 boundOf :: Its -> P.PolyOrder -> Complexity
 boundOf prob order = C.poly $ normalize [ interpret int | int <- M.elems (PI.interpretations $ P.pint_ order) ] where
   interpret int = Poly.substituteVariables int $ M.fromList $ zip PI.indeterminates (args $ startterm_ prob)
-  normalize     = foldr (Poly.zipCoefficientsWith $ \c1 c2 -> abs c1 `max` abs c2) (Poly.fromView [])
+  normalize     = foldr (Poly.zipCoefficientsWith (max `on` abs)) (Poly.fromView [])
 
 
 --- * pretty print ---------------------------------------------------------------------------------------------------
@@ -201,7 +202,7 @@ boundOf prob order = C.poly $ normalize [ interpret int | int <- M.elems (PI.int
 instance PP.Pretty LooptreeProof where
   pretty (LooptreeProof t)= PP.vcat
     [ PP.text "We construct a looptree:"
-    , PP.indent 2 $ PP.vcat $ PP.text <$> (draw t) ]
+    , PP.indent 2 $ PP.vcat $ PP.text <$> draw t ]
 
 instance Xml.Xml LooptreeProof where
   toXml = Xml.text . show

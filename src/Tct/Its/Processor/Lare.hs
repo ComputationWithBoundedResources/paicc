@@ -10,32 +10,32 @@ More pricesly this module implements:
 {-# LANGUAGE RecordWildCards, StandaloneDeriving #-}
 module Tct.Its.Processor.Lare where
 
-import           Control.Monad                (when)
-import           Data.Foldable                (toList)
-import qualified Data.IntMap.Strict           as IM
-import           Data.List                    (intersperse)
-import           Data.Monoid                  ((<>))
-import qualified Data.Set                     as S
+import           Control.Monad                    (when)
+import           Data.Foldable                    (toList)
+import qualified Data.IntMap.Strict               as IM
+import           Data.List                        (intersperse)
+import           Data.Monoid                      ((<>))
+import qualified Data.Set                         as S
 
-import           Tct.Core.Common.Pretty       (Pretty, pretty)
-import qualified Tct.Core.Common.Pretty       as PP
-import           Tct.Core.Common.Xml          (Xml, toXml)
-import qualified Tct.Core.Common.Xml          as Xml
-import qualified Tct.Core.Data                as T
+import           Tct.Core.Common.Pretty           (Pretty, pretty)
+import qualified Tct.Core.Common.Pretty           as PP
+import           Tct.Core.Common.Xml              (Xml, toXml)
+import qualified Tct.Core.Common.Xml              as Xml
+import qualified Tct.Core.Data                    as T
 
-import qualified Tct.Common.Polynomial        as P
+import qualified Tct.Common.Polynomial            as P
 
-import           Tct.Its.Data.Complexity      (Complexity (..))
-import qualified Tct.Its.Data.LocalSizebounds as LB (Minimize (..), computeWith, lboundOf)
+import           Tct.Its.Data.Complexity          (Complexity (..))
+import qualified Tct.Its.Data.LocalSizebounds     as LB (Minimize (..), computeWith, lboundOf)
 import           Tct.Its.Data.Problem
-import qualified Tct.Its.Data.Timebounds      as TB (initialise)
-import qualified Tct.Its.Data.TransitionGraph as TG
+import qualified Tct.Its.Data.Timebounds          as TB (initialise)
+import qualified Tct.Its.Data.TransitionGraph     as TG
 import           Tct.Its.Data.Types
-import qualified Tct.Its.Processor.Looptree   as LT
+import qualified Tct.Its.Processor.Looptree       as LT
 
-import qualified Lare.Analysis                as LA
-import qualified Lare.Flow                    as LA
-import qualified Lare.Tick                    as LA
+import qualified Lare.Analysis                    as LA
+import qualified Lare.Flow                        as LA
+import qualified Lare.Tick                        as LA
 
 
 type Edge v l    = LA.Edge v (l (LA.Var Var))
@@ -71,10 +71,39 @@ toBound (NPoly p) = foldr k (LA.Sum []) (P.toView p) where
     | i == 1                = LA.Sum $ (c, LA.Var v):bs
   k _ _                     = LA.Unknown
 
+data UseGraph = UseCFG | UseTG
+  deriving (Eq, Ord, Show)
+
+toEdges' :: Its -> UseGraph -> Int -> [Edge Fun LA.Assignment]
+
+toEdges' prob UseCFG i = pure $
+  LA.edge
+    (fun lhs)
+    (LA.Assignment
+      [ (LA.Var v, toBound $ LB.lboundOf lsb rv) | v <- domain prob, let rv = RV i 0 v ])
+    (fun $ head rhs)
+  where
+    Just lsb = localSizebounds_ prob
+    Rule{..} = irules_ prob IM.! i
+
+toEdges' prob UseTG i = do
+  let 
+    sucs1 = fst `fmap` TG.successors (tgraph_ prob) i
+    sucs2 = if null sucs1 then i:sucs1 else sucs1
+  suc <- sucs2
+  return $
+    LA.Edge
+      (toF lhs i)
+      (LA.Assignment
+        [ (LA.Var v, toBound $ LB.lboundOf lsb rv) | v <- domain prob, let rv = RV i 0 v ])
+      (toF (head . rhs) suc)
+  where
+    Just lsb = localSizebounds_ prob
+    toF k n  = fun (k $ irules_ prob IM.! i) ++ "." ++ show n
 
 -- Transforms the ITS and computed loop structure to the intermediate represenation of the LARE library.
-toLare :: Its -> LT.Top [RuleId] -> Program LA.Assignment
-toLare prob lt =
+toLare :: Its -> UseGraph -> LT.Top [RuleId] -> Program LA.Assignment
+toLare prob usegraph lt =
   let
     lare = LA.toProgram $ go0 lt
     vs1  = [ LA.Var v | v <- domain prob ]
@@ -83,8 +112,7 @@ toLare prob lt =
   Program (vs1++vs2) lare
 
   where
-  lbs   = toEdges prob
-  from  = fmap (lbs IM.!)
+  from  = concatMap (toEdges' prob usegraph)
 
   go0 (LT.Top es ts)    = LA.Top (from es) (goN `fmap` zip (positions [0]) ts)
   goN (pos,LT.Tree{..}) = LA.Tree (loop (from program) pos bound) (goN `fmap` zip (positions pos) subprograms)
@@ -93,17 +121,21 @@ toLare prob lt =
     { LA.program' = cfg'
     , LA.loopid'  = LA.Assignment [(LA.Ann (posToVar pos), toBound bnd)] }
     where
-      posToVar = intersperse '.' . concat . fmap show . reverse
+      posToVar = intersperse '.' . concatMap show . reverse
 
   positions pos = (:pos) `fmap` iterate succ (0 :: Int)
 
 
-toLareM :: Its -> LT.Top [RuleId] -> T.TctM (Program LA.Assignment)
-toLareM prob lt = case localSizebounds_ prob of
-  Just _  -> return $ toLare prob lt
-  Nothing -> do
-    lb <- LB.computeWith LB.Minimize (domain prob) (irules_ prob)
-    return $ toLare (prob { localSizebounds_ = Just lb }) lt
+toLareM :: Its -> UseGraph -> LB.Minimize -> LT.Top [RuleId] -> T.TctM (Program LA.Assignment)
+toLareM prob usegraph minimize lt = do
+  lbs <- LB.computeWith minimize (domain prob) (irules_ prob)
+  let
+    prob' = prob
+      { localSizebounds_ = Just lbs
+      , sizebounds_      = Nothing
+      , rvgraph_         = Nothing }
+  return $ toLare prob' usegraph lt
+
 
 -- LARE requires start and exit nodes.
 -- Analyse the SCC dependency tree and add sinks if necessary.
@@ -136,11 +168,13 @@ addSinks prob = prob
     concat
       [ theSCC scc
         | ps <- TG.rootsPaths (tgraph_ prob)
-        , let scc = (head $ reverse ps)
+        , let scc = last ps
         , isNonTrivial scc ]
 
   isNonTrivial (NonTrivial _) = True
   isNonTrivial _              = False
+
+
 
 
 --- * Processors -----------------------------------------------------------------------------------------------------
@@ -172,7 +206,7 @@ instance T.Processor LooptreeTransformer where
       else T.abortWith proof
 
 
-data SizeAbstractionProcessor = SizeAbstraction deriving Show
+data SizeAbstractionProcessor = SizeAbstraction UseGraph LB.Minimize deriving Show
 
 instance T.Processor SizeAbstractionProcessor where
   type ProofObject SizeAbstractionProcessor = ()
@@ -180,7 +214,8 @@ instance T.Processor SizeAbstractionProcessor where
   type Out SizeAbstractionProcessor         = SizeAbstraction
   type Forking SizeAbstractionProcessor     = T.Id
 
-  execute SizeAbstraction (prob, LT.LooptreeProof tree) = T.succeedWithId () =<< toLareM prob tree
+  execute (SizeAbstraction usegraph minimize) (prob, LT.LooptreeProof tree) = 
+    T.succeedWithId () =<< toLareM prob usegraph minimize tree
 
 
 data FlowAbstractionProcessor = FlowAbstraction deriving Show
@@ -207,13 +242,14 @@ instance T.Processor LareProcessor where
   execute LareProcessor (Program vs prob) =
     let
       proofM = do
-        proof <- LA.convertWith (LA.ticked $ LA.flow vs) prob
+        -- proof <- LA.convertWith (LA.ticked $ LA.flow vs) prob
+        proof <- Right $ LA.convert (LA.ticked $ LA.flow vs) prob
         let bound = LA.boundOfProof proof
         when (bound == LA.Indefinite) (Left "Unknown bound.")
         return (proof, bound)
     in
     either
-      (T.abortWith)
+      T.abortWith
       (\(proof, bound) -> T.succeedWith0 (LareProof proof) (T.judgement $ T.timeUBCert $ toComplexity bound))
       proofM
 
@@ -235,8 +271,8 @@ instance Xml.Xml (Program l)            where toXml = const Xml.empty
 instance Pretty LareProof where pretty (LareProof p) = pretty p
 instance Xml LareProof where toXml = const Xml.empty
 
-instance Pretty (Program LA.Assignment) where pretty p = ppProgram pretty p
-instance Pretty (Program LA.F) where pretty p = ppProgram pretty p
+instance Pretty (Program LA.Assignment) where pretty = ppProgram pretty
+instance Pretty (Program LA.F) where pretty = ppProgram pretty
 
 ppProgram :: (LA.Program Fun (t (LA.Var Var)) -> PP.Doc) -> Program t -> PP.Doc
 ppProgram k (Program vs p) = PP.vcat
