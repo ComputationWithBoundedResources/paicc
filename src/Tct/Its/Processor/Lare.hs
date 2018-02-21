@@ -6,6 +6,14 @@ More pricesly this module implements:
   * an abstraction from ITS to LARE, and
   * a wrapper for the LARE library.
 
+
+TODO: MS:
+
+   * loopstructure should use a greedy algorithm
+     * not necessarily just maxing oriented rules but using disjunctive bounds
+     * we have a lot of examples where nesting is unnecessarily generated
+   * unfold the TG beforehand not during translation
+
 -}
 {-# LANGUAGE RecordWildCards, StandaloneDeriving #-}
 module Tct.Its.Processor.Lare where

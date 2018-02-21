@@ -31,6 +31,7 @@ executable paicc-exe
   main-is:        Main.hs
   hs-source-dirs: app
   build-depends:  base, tct-core, tct-its, paicc
+  default-language:    Haskell2010
   ghc-options:    -Wall -fno-warn-orphans -O3 -threaded -rtsopts -with-rtsopts=-N
 
 source-repository head
