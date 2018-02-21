@@ -172,7 +172,7 @@ addSinks prob = prob
   sinks = IM.fromList $
     zip
      [ succ (fst (IM.findMax irules)) ..]
-     [ rule f |  f <- LA.nub [ fun (lhs r) | n <- needSinks, let r = irules IM.! n ] ]
+     [ rule f |  f <- LA.nub [ fun (rhs r) | n <- needSinks, let r = irules IM.! n ] ]
 
   needSinks =
     concat [ theSCC scc | ps <- TG.rootsPaths (tgraph_ prob), let scc = last ps ]
