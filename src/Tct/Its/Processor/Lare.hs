@@ -21,9 +21,9 @@ module Tct.Its.Processor.Lare where
 import           Control.Monad                    (when)
 import           Data.Foldable                    (toList)
 import qualified Data.IntMap.Strict               as IM
+import qualified Data.Map.Strict                  as M (insert)
 import           Data.List                        (intersperse)
 import           Data.Monoid                      ((<>))
-import qualified Data.Set                         as S
 
 import           Tct.Core.Common.Pretty           (Pretty, pretty)
 import qualified Tct.Core.Common.Pretty           as PP
@@ -44,6 +44,7 @@ import qualified Tct.Its.Processor.Looptree       as LT
 import qualified Lare.Analysis                    as LA
 import qualified Lare.Flow                        as LA
 import qualified Lare.Tick                        as LA
+import qualified Lare.Util                        as LA
 
 
 type Edge v l    = LA.Edge v (l (LA.Var Var))
@@ -150,6 +151,7 @@ toLareM prob usegraph minimize lt = do
 addSinks :: Its -> Its
 addSinks prob = prob
   { irules_          = allrules
+  , signature_       = M.insert (fun exit) (length $ args exit) (signature_ prob)
   , tgraph_          = TG.estimateGraph allrules
   , rvgraph_         = Nothing
   , timebounds_      =
@@ -164,25 +166,16 @@ addSinks prob = prob
 
   irules = irules_ prob
   term f = Term { fun = f, args = args (startterm_ prob) }
-  rule f = Rule { lhs = term f, rhs = [ term "exitus616"], con = [] }
+  exit   = term "exitus616"
+  rule f = Rule { lhs = term f, rhs = [ exit ], con = [] }
 
   sinks = IM.fromList $
     zip
      [ succ (fst (IM.findMax irules)) ..]
-     [ rule f |  f <- nub [ fun (lhs r) | n <- needSinks, let r = irules IM.! n ] ]
-  nub = S.toList . S.fromList
+     [ rule f |  f <- LA.nub [ fun (lhs r) | n <- needSinks, let r = irules IM.! n ] ]
 
   needSinks =
-    concat
-      [ theSCC scc
-        | ps <- TG.rootsPaths (tgraph_ prob)
-        , let scc = last ps
-        , isNonTrivial scc ]
-
-  isNonTrivial (NonTrivial _) = True
-  isNonTrivial _              = False
-
-
+    concat [ theSCC scc | ps <- TG.rootsPaths (tgraph_ prob), let scc = last ps ]
 
 
 --- * Processors -----------------------------------------------------------------------------------------------------
