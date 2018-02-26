@@ -186,15 +186,19 @@ infer prob = go0 (IM.keys $ irules_ prob) where
         let
           is      = [ i | (i,_,_,_) <- P.strict_ order ]
           tgraph' = TG.deleteNodes is $ TG.restrictToNodes rs $ tgraph_ prob
+          fs      = (fun . head . rhs . find . fst)  <$> TG.incoming (tgraph_ prob) is
         in
-        Tree rs is (boundOf prob order) <$> sequence [ goN ns | ns <- TG.nonTrivialSCCs tgraph' ]
+        Tree rs is (boundOf fs (domain prob) order) <$> sequence [ goN ns | ns <- TG.nonTrivialSCCs tgraph' ]
       _             ->
         return $ Tree rs [] C.Unknown []
+    where
+    find k = fromMaybe (error $ "restrictToRuleIds.not found: " ++ show k) (IM.lookup k $ irules_ prob)
 
-boundOf :: Its -> P.PolyOrder -> Complexity
-boundOf prob order = C.poly $ normalize [ interpret int | int <- M.elems (PI.interpretations $ P.pint_ order) ] where
-  interpret int = Poly.substituteVariables int $ M.fromList $ zip PI.indeterminates (args $ startterm_ prob)
-  normalize     = foldr (Poly.zipCoefficientsWith (max `on` abs)) (Poly.fromView [])
+boundOf :: [Fun] -> [Var] -> P.PolyOrder -> Complexity
+boundOf fs vs order = C.poly $ normalize [ interpret int | (f,int) <- M.assocs (PI.interpretations $ P.pint_ order), f `elem` fs ]
+  where
+  interpret int = Poly.substituteVariables int $ M.fromList $ zip PI.indeterminates [ Poly.variable v | v <- vs ]
+  normalize     = foldr (Poly.zipCoefficientsWith (max `on` abs)) zero
 
 
 --- * pretty print ---------------------------------------------------------------------------------------------------
