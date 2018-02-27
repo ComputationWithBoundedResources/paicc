@@ -1,26 +1,19 @@
 -- | This module tries to infer a \loop structure\ of an ITS.
 -- Infers a lexicographric combination of linear ranking functions.
-{-# LANGUAGE DeriveFoldable, DeriveFunctor, DeriveTraversable, FlexibleContexts, LambdaCase, PartialTypeSignatures,
-             ScopedTypeVariables #-}
+{-# LANGUAGE DeriveFoldable, DeriveFunctor, DeriveTraversable, FlexibleContexts, ScopedTypeVariables #-}
 module Tct.Paicc.LoopStructure where
 
 
 import           Data.Function                       (on)
-import           Data.Monoid                         ((<>))
--- -- import           Data.Either                         (partitionEithers)
 import qualified Data.IntMap.Strict                  as IM
-import           Data.Maybe                          (fromMaybe)
--- -- import           Data.List                           ((\\))
 import qualified Data.Map.Strict                     as M
--- -- import           Data.Maybe                          (catMaybes, fromMaybe)
+import           Data.Maybe                          (fromMaybe)
+import           Data.Monoid                         ((<>))
 
 import           Tct.Its.Data.Complexity             (Complexity)
 import qualified Tct.Its.Data.Complexity             as C (Complexity (..), poly)
 import           Tct.Its.Data.Rule                   (AAtom (..), filterLinear, interpretTerm, toGte)
--- -- import qualified Tct.Its.Data.Timebounds             as TB
 import qualified Tct.Its.Data.TransitionGraph        as TG
--- import           Tct.Its.Data.Types
--- -- import qualified Tct.Its.Processor.Simplification    as S
 
 import qualified Tct.Common.Polynomial               as P
 import qualified Tct.Common.PolynomialInterpretation as PI
@@ -34,12 +27,6 @@ import           Lare.Util                           ((\\))
 
 import           Tct.Paicc.Problem
 
-import Debug.Trace
-
---- * looptree -------------------------------------------------------------------------------------------------------
---
--- A. M. Ben-Amram and A. Pineles, "Flowchart Programs, Regular Expressions, and Decidability of Polynomial
--- Growth-Rate.", VPT@ETAPS, 2016
 
 data Top a = Top a [Tree a]
   deriving (Show, Functor, Foldable, Traversable)
@@ -75,26 +62,26 @@ findIM m k = error err `fromMaybe` IM.lookup k m
 type Encoding = (PI.PolyInter Fun (SMT.IExpr Int), IM.IntMap (SMT.IExpr Int))
 type Decoding = (PI.PolyInter Fun Int, IM.IntMap Int)
 
-interpretation :: Rules -> Signature -> SMT.SolverSt (SMT.SmtState Int) Encoding
-interpretation irules signature = do
+-- provides an encoding for linear ranking function 
+orientation :: Rules -> Signature -> SMT.SolverSt (SMT.SmtState Int) Encoding
+orientation irules signature = do
   SMT.setLogic SMT.QF_LIA
 
-  ebsi <- PI.PolyInter <$> traverse encode signature
-  strs <- traverse (const SMT.nvarM') irules
+  aint <- PI.PolyInter <$> traverse encode signature
+  bnds <- traverse (const SMT.nvarM') irules
 
   let
-    strict = (strs `findIM`)
-    interpretLhs    = interpret ebsi
-    interpretRhs ts = interpret ebsi (head ts)
+    strict = findIM bnds
+    interpretLhs    = interpret aint
+    interpretRhs ts = interpret aint (head ts)
     interpretCon cs = [ P.mapCoefficients SMT.num c | Gte c _ <- toGte cs ]
-    absolute p = SMT.bigAnd [ c .== SMT.zero | c <- P.coefficients p ]
 
   let
     decreasing (i,Rule l rs cs) = pl `eliminate` interpretCon (filterLinear cs)
       where pl = interpretLhs l `sub` (interpretRhs rs `add` P.constant (strict i))
-    bounded (Rule l _ cs) = pl `eliminate` interpretCon (filterLinear cs)
-      where pl = interpretLhs l `sub` P.constant one
+    bounded (Rule l _ cs) = (interpretLhs l) `eliminate` interpretCon (filterLinear cs)
 
+    absolute p = SMT.bigAnd [ c .== SMT.zero | c <- P.coefficients p ]
     eliminate ply cs = do
       let
         k p = SMT.nvarM' >>= \lambda -> return (lambda `P.scale` p)
@@ -114,18 +101,15 @@ interpretation irules signature = do
   SMT.assert (SMT.top :: SMT.Formula Int)
   SMT.assert =<< SMT.bigAndM [ order r | r <- IM.assocs irules ]
 
-  return (ebsi, strs)
-    -- rulesConstraint = [ strict i .> SMT.zero | i <- is ]
-  -- SMT.assert $ SMT.bigOr rulesConstraint
+  return (aint, bnds)
 
   where
 
   encode ar = P.fromViewWithM (const SMT.ivarM') (linear ar)
   linear ar = P.linear (const ()) (take ar PI.indeterminates)
 
-  interpret ebsi = interpretTerm interpretFun interpretArg where
-    interpretFun f = P.substituteVariables interp . M.fromList . zip PI.indeterminates
-      where interp = PI.interpretations ebsi `findM` f
+  interpret aint = interpretTerm interpretFun interpretArg where
+    interpretFun f = P.substituteVariables (PI.interpretations aint `findM` f) . M.fromList . zip PI.indeterminates
     interpretArg   = P.mapCoefficients SMT.num
 
 data Order = Order
@@ -154,10 +138,10 @@ data Greedy = Greedy | NoGreedy
 
 farkas :: Paicc -> Paicc -> Greedy -> T.TctM Order
 farkas prob sprob NoGreedy = do
-  let encodingSMT = flip SMT.runSolverSt SMT.initialState $ interpretation (irules_ sprob) (signature_ sprob)
+  let encodingSMT = flip SMT.runSolverSt SMT.initialState $ orientation (irules_ sprob) (signature_ sprob)
   either id id <$> farkasN prob sprob encodingSMT mempty
 farkas prob sprob Greedy = do
-  let encodingSMT = flip SMT.runSolverSt SMT.initialState $ interpretation (irules_ sprob) (signature_ sprob)
+  let encodingSMT = flip SMT.runSolverSt SMT.initialState $ orientation (irules_ sprob) (signature_ sprob)
   go mempty encodingSMT
   where
     go order smt = do
@@ -167,14 +151,16 @@ farkas prob sprob Greedy = do
         Right new -> pure new
 
 farkasN :: Paicc -> Paicc -> (Encoding, SMT.SmtState Int) -> Order -> T.TctM (Either Order Order)
-farkasN prob sprob (encoding, st) order = do
+farkasN prob sprob (encoding, st) order
+  | null todo = pure $ Right order
+  | otherwise = do
   res :: SMT.Result Decoding <- SMT.solveSt SMT.yices st $ do
-    let is = IM.keys (irules_ sprob) \\ strict_ order
-    SMT.assert $ SMT.bigOr [ snd encoding `findIM` i .> zero | i <- is ]
+    SMT.assert $ SMT.bigOr [ snd encoding `findIM` i .> zero | i <- todo ]
     pure $ SMT.decode encoding
   pure $ case res of
     SMT.Sat decoding -> Left $ update prob sprob decoding order
     _                -> Right order
+  where todo = IM.keys (irules_ sprob) \\ strict_ order
 
 infer :: Paicc -> T.TctM (Top [RuleId])
 infer = inferWith Greedy
@@ -184,7 +170,7 @@ inferWith greedy prob = go0 (IM.keys $ irules_ prob) where
   go0 rs = Top rs <$> sequence [ goN ns | ns <- TG.nonTrivialSCCs (tgraph_ prob) ]
   goN [] = return $ Tree [] [] one []
   goN rs = do
-    let sprob = traceShow rs $ restrict rs prob
+    let sprob = restrict rs prob
     order <- farkas prob sprob greedy
     if null (strict_ order)
       then return $ Tree rs [] C.Unknown []
