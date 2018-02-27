@@ -3,6 +3,7 @@
 module Main (main) where
 
 import           Tct.Core
+import           Tct.Core.Processor.Transform as T
 import qualified Tct.Core.Data                as T
 import           Tct.Core.Main                (AnswerFormat (..))
 
@@ -13,9 +14,15 @@ import           Tct.Its.Processor.Lare
 import           Tct.Its.Processor.Looptree   (LooptreeProcessor (..))
 import qualified Tct.Its.Strategies           as S
 
+import Tct.Paicc.Problem (fromIts)
+import Tct.Paicc.Strategies (LoopStructureProcessor(..))
+import Tct.Paicc.LoopStructure (Greedy(..))
+
 instance Declared Its Its where
   decls =
     [ SD $ T.strategy "loopstructure"   () loopstructure
+    , SD $ T.strategy "greedyloops"     () $ withSimpl $ T.transform' (Right . fromIts) .>>> T.processor (LoopStructure Greedy) .>>> close
+    , SD $ T.strategy "lazyloops"       () $ withSimpl $ T.transform' (Right . fromIts) .>>> T.processor (LoopStructure NoGreedy) .>>> close
     , SD $ T.strategy "flowAbstraction" () flowAbstraction
     , SD $ T.strategy "lare"            () lare
     , SD $ T.strategy "mixed"           () $ withArgumentFilter mixed
