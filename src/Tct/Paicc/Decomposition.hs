@@ -12,7 +12,7 @@ import           Data.Maybe                          (fromMaybe)
 import           Data.Monoid                         ((<>))
 
 import           Tct.Its.Data.Complexity             (Complexity)
-import qualified Tct.Its.Data.Complexity             as C (Complexity (..), poly)
+import qualified Tct.Its.Data.Complexity             as C (Complexity (..), poly, maximal)
 import           Tct.Its.Data.Rule                   (AAtom (..), filterLinear, interpretTerm, toGte)
 import qualified Tct.Its.Data.TransitionGraph        as TG
 
@@ -118,7 +118,7 @@ data Order = Order
 
 instance Monoid Order where
   mempty        = Order { strict_ = mempty, bound_ = zero }
-  mappend o1 o2 = Order { strict_ = strict_ o1 <> strict_ o2, bound_ = bound_ o1 `add` bound_ o2 }
+  mappend o1 o2 = Order { strict_ = strict_ o1 <> strict_ o2, bound_ = (bound_ o1) `C.maximal` (bound_ o2) }
 
 propagate :: Paicc -> Order -> Order
 propagate sprob order = order <> Order { strict_ = fp0 propagate' (strict_ order), bound_ = zero } where
@@ -126,8 +126,10 @@ propagate sprob order = order <> Order { strict_ = fp0 propagate' (strict_ order
   propagate' old = IS.fromList
     [ i
       | i  <- IS.toList $ candidates IS.\\ old
-      , rv <- TG.predecessors (tgraph_ sprob) i
-      , fst rv `IS.member` old ]
+      , fwd i `IS.isSubsetOf` old || bwd i `IS.isSubsetOf` old ]
+
+  fwd i = IS.fromList [ fst rv | rv <- TG.predecessors (tgraph_ sprob) i ]
+  bwd i = IS.fromList [ fst rv | rv <- TG.successors   (tgraph_ sprob) i ]
 
   fp0 k old = fpN k old (k old)
   fpN k old new
