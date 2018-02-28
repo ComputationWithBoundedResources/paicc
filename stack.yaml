@@ -1,15 +1,15 @@
 packages:
 - '.'
 extra-deps:
-- git: git@github.com:computationwithboundedresources/slogic.git
+- git: https://github.com/computationwithboundedresources/slogic.git
   commit: a925dd76e0432f13b105aa44657cd046cf959c9a
-- git: git@github.com:computationwithboundedresources/tct-core.git
+- git: https://github.com/computationwithboundedresources/tct-core.git
   commit: 5aba80ab385febb66f7236b99a1acf9db159a9d1
-- git: git@github.com:computationwithboundedresources/tct-common.git
+- git: https://github.com/computationwithboundedresources/tct-common.git
   commit: dbdbddf53b5c62c4c983a8025b7ef388f6f75563
-- git: git@github.com:computationwithboundedresources/tct-its.git
-  commit: cec50e1e83346089779081e5479bb79ab1638fb9
-- git: git@github.com:computationwithboundedresources/lare.git
+- git: https://github.com/computationwithboundedresources/tct-its.git
+  commit: 9dddf0c2341bebadec55cac05848de9eab9d0665
+- git: https://github.com/computationwithboundedresources/lare.git
   commit: a602d1dc789a8649a12af761b4bd13be1b4bc60a
 - fgl-visualize-0.1.0.1
 - dotgen-0.4.2
