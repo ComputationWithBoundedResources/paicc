@@ -13,6 +13,7 @@ module Tct.Paicc.Problem
   ) where
 
 import           Data.IntMap.Strict           as IM (elems)
+import           Data.Monoid                  ((<>))
 
 import           Tct.Core.Common.Pretty       (Pretty, pretty)
 import qualified Tct.Core.Common.Pretty       as PP
@@ -44,6 +45,18 @@ instance Pretty Paicc where
     , pp "Signature:"  $ pretty (signature_ prob)
     , pp "Rule Graph:" $ pretty (tgraph_ prob) ]
     where pp st p = PP.text st PP.<$$> PP.indent 2 p
+
+
+instance {-# Overlapping #-} Pretty [Rule] where
+  pretty es = PP.vcat [ k e | e <- es ] where
+    k Rule{lhs=l,rhs=r,con=c} =
+      PP.fill llen (pretty l)
+      <> PP.text " -> "
+      <> PP.fill rlen (pretty r)
+      <> PP.char ' '
+      PP.</> PP.nest 2 (pretty c)
+    llen = maximum [ length $ show $ pretty (lhs e) | e <- es ]
+    rlen = maximum [ length $ show $ pretty (rhs e) | e <- es ]
 
 instance Xml Paicc where
   toXml = const empty

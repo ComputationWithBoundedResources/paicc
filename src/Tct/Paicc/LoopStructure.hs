@@ -6,6 +6,7 @@ module Tct.Paicc.LoopStructure where
 
 import           Data.Function                       (on)
 import qualified Data.IntMap.Strict                  as IM
+import qualified Data.IntSet                         as IS
 import qualified Data.Map.Strict                     as M
 import           Data.Maybe                          (fromMaybe)
 import           Data.Monoid                         ((<>))
@@ -22,8 +23,6 @@ import           Tct.Common.SMT                      ((.&&), (.==), (.=>), (.>),
 import qualified Tct.Common.SMT                      as SMT
 
 import qualified Tct.Core.Data                       as T
-
-import           Lare.Util                           ((\\))
 
 import           Tct.Paicc.Problem
 
@@ -62,7 +61,7 @@ findIM m k = error err `fromMaybe` IM.lookup k m
 type Encoding = (PI.PolyInter Fun (SMT.IExpr Int), IM.IntMap (SMT.IExpr Int))
 type Decoding = (PI.PolyInter Fun Int, IM.IntMap Int)
 
--- provides an encoding for linear ranking function 
+-- provides an encoding for linear ranking function
 orientation :: Rules -> Signature -> SMT.SolverSt (SMT.SmtState Int) Encoding
 orientation irules signature = do
   SMT.setLogic SMT.QF_LIA
@@ -113,17 +112,31 @@ orientation irules signature = do
     interpretArg   = P.mapCoefficients SMT.num
 
 data Order = Order
-  { strict_ :: [Int]
+  { strict_ :: IS.IntSet
   , bound_  :: Complexity }
   deriving Show
 
 instance Monoid Order where
-  mempty        = Order { strict_ = [], bound_ = zero }
+  mempty        = Order { strict_ = mempty, bound_ = zero }
   mappend o1 o2 = Order { strict_ = strict_ o1 <> strict_ o2, bound_ = bound_ o1 `add` bound_ o2 }
+
+propagate :: Paicc -> Order -> Order
+propagate sprob order = order <> Order { strict_ = fp0 propagate' (strict_ order), bound_ = zero } where
+  candidates = IM.keysSet (irules_ sprob)
+  propagate' old = IS.fromList
+    [ i
+      | i  <- IS.toList $ candidates IS.\\ old
+      , rv <- TG.predecessors (tgraph_ sprob) i
+      , fst rv `IS.member` old ]
+
+  fp0 k old = fpN k old (k old)
+  fpN k old new
+    | new `IS.isSubsetOf` old = old
+    | otherwise               = fpN k new (new `IS.union` k new)
 
 update :: Paicc -> Paicc -> Decoding -> Order -> Order
 update prob sprob (pint,stricts) old = old <> Order { strict_ = strict' , bound_ = bound' } where
-  strict' = IM.keys $ IM.filter (>0) stricts
+  strict' = IM.keysSet $ IM.filter (>0) stricts
   fs      = (fun . head . rhs . findIM (irules_ prob) . fst) `fmap` TG.incoming (tgraph_ prob) (IM.keys $ irules_ sprob)
   bound'  = boundOf fs (domain_ prob) pint
 
@@ -152,15 +165,15 @@ farkas prob sprob Greedy = do
 
 farkasN :: Paicc -> Paicc -> (Encoding, SMT.SmtState Int) -> Order -> T.TctM (Either Order Order)
 farkasN prob sprob (encoding, st) order
-  | null todo = pure $ Right order
-  | otherwise = do
+  | IS.null todo = pure $ Right order
+  | otherwise    = do
   res :: SMT.Result Decoding <- SMT.solveSt SMT.yices st $ do
-    SMT.assert $ SMT.bigOr [ snd encoding `findIM` i .> zero | i <- todo ]
+    SMT.assert $ SMT.bigOr [ snd encoding `findIM` i .> zero | i <- IS.toList todo ]
     pure $ SMT.decode encoding
   pure $ case res of
-    SMT.Sat decoding -> Left $ update prob sprob decoding order
+    SMT.Sat decoding -> Left $ propagate sprob $ update prob sprob decoding order
     _                -> Right order
-  where todo = IM.keys (irules_ sprob) \\ strict_ order
+  where todo = IM.keysSet (irules_ sprob) IS.\\ strict_ order
 
 infer :: Paicc -> T.TctM (Top [RuleId])
 infer = inferWith Greedy
@@ -172,13 +185,14 @@ inferWith greedy prob = go0 (IM.keys $ irules_ prob) where
   goN rs = do
     let sprob = restrict rs prob
     order <- farkas prob sprob greedy
-    if null (strict_ order)
+    if IS.null (strict_ order)
       then return $ Tree rs [] C.Unknown []
       else
         let
-          tgraph' = TG.deleteNodes (strict_ order) $ (tgraph_ sprob)
+          is      = IS.toList (strict_ order)
+          tgraph' = TG.deleteNodes is $ (tgraph_ sprob)
         in
-        Tree rs (strict_ order) (bound_ order) <$> sequence [ goN ns | ns <- TG.nonTrivialSCCs tgraph' ]
+        Tree rs is (bound_ order) <$> sequence [ goN ns | ns <- TG.nonTrivialSCCs tgraph' ]
 
 
 -- * Pretty Print
