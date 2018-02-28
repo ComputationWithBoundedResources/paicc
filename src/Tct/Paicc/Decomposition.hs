@@ -1,7 +1,7 @@
 -- | This module tries to infer a \loop structure\ of an ITS.
 -- Infers a lexicographric combination of linear ranking functions.
 {-# LANGUAGE DeriveFoldable, DeriveFunctor, DeriveTraversable, FlexibleContexts, ScopedTypeVariables #-}
-module Tct.Paicc.LoopStructure where
+module Tct.Paicc.Decomposition where
 
 
 import           Data.Function                       (on)
@@ -78,7 +78,7 @@ orientation irules signature = do
   let
     decreasing (i,Rule l rs cs) = pl `eliminate` interpretCon (filterLinear cs)
       where pl = interpretLhs l `sub` (interpretRhs rs `add` P.constant (strict i))
-    bounded (Rule l _ cs) = (interpretLhs l) `eliminate` interpretCon (filterLinear cs)
+    bounded (Rule l _ cs) = interpretLhs l `eliminate` interpretCon (filterLinear cs)
 
     absolute p = SMT.bigAnd [ c .== SMT.zero | c <- P.coefficients p ]
     eliminate ply cs = do
@@ -190,7 +190,7 @@ inferWith greedy prob = go0 (IM.keys $ irules_ prob) where
       else
         let
           is      = IS.toList (strict_ order)
-          tgraph' = TG.deleteNodes is $ (tgraph_ sprob)
+          tgraph' = TG.deleteNodes is (tgraph_ sprob)
         in
         Tree rs is (bound_ order) <$> sequence [ goN ns | ns <- TG.nonTrivialSCCs tgraph' ]
 

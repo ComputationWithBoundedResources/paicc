@@ -16,12 +16,11 @@ cabal-version:       >=1.10
 library
   hs-source-dirs:      src
   exposed-modules:
-    Tct.Its.Processor.Lare
-    Tct.Its.Processor.Looptree
+    Tct.Paicc
     Tct.Paicc.Problem
-    Tct.Paicc.LoopStructure
-    Tct.Paicc.Unfold
-    Tct.Paicc.Strategies
+    Tct.Paicc.Decomposition
+    Tct.Paicc.Preprocessor
+    Tct.Paicc.Abstraction
   build-depends:       base >= 4.7 && < 5, containers, tct-core, tct-common, tct-its, lare
   default-language:    Haskell2010
   ghc-options:         -Wall -O3 -fno-warn-orphans
@@ -33,11 +32,11 @@ library
     TypeOperators
 
 executable paicc-exe
-  main-is:        Main.hs
-  hs-source-dirs: app
-  build-depends:  base, tct-core, tct-its, paicc
+  main-is:             Main.hs
+  hs-source-dirs:      app
+  build-depends:       base, tct-core, tct-its, paicc
   default-language:    Haskell2010
-  ghc-options:    -Wall -fno-warn-orphans -O3 -threaded -rtsopts -with-rtsopts=-N
+  ghc-options:         -Wall -fno-warn-orphans -O3 -threaded -rtsopts -with-rtsopts=-N
 
 source-repository head
   type:     git
