@@ -13,67 +13,74 @@ import Tct.Paicc
 
 instance Declared Its Its where
   decls =
-    [ SD $ strategy "simple-greedy" ()    $ withArgumentFilter $ simple Unfold Greedy  Minimize
-    , SD $ strategy "simple-no-greedy" () $ withArgumentFilter $ simple Unfold NoGreedy Minimize
-    , SD $ strategy "hard" () $ withArgumentFilter hard
-    , SD $ strategy "more" () $ more Greedy ]
-
+    [ SD $ strategy "simple"    () $ simple Slice NoUnfold Greedy Minimize
+    , SD $ strategy "strategic" () $ strategic Greedy Minimize
+    , SD $ strategy "unlimited" () $ unlimited ]
 
 main :: IO ()
 main = runIts $
   itsConfig
-    { defaultStrategy = simple NoUnfold Greedy Minimize
+    { defaultStrategy = simple Slice NoUnfold Greedy Minimize
     , putAnswer       = Left TTTACAnswerFormat }
 
 
-data Unfold = Unfold | NoUnfold 
+data Unfold = Unfold | NoUnfold
   deriving (Eq, Ord, Show, Enum, Bounded)
 
-withSimpl st =
-  try unsatRules
-  .>>> try unreachableRules
-  .>>> st
+data Slice = Slice | NoSlice
+  deriving (Eq, Ord, Show, Enum, Bounded)
 
-withArgumentFilter st = try (withProblem af) .>>> st
-  where af p = when (length (args $ startterm_ p) > 12) (argumentFilter (unusedFilter p))
+sliceWhen k = withProblem $ \p -> when (k p) $ try $ argumentFilter (unusedFilter p)
 
 rank =
-  try boundTrivialSCCs
+  try knowledgePropagation
   .>>> te (farkas .>>> try knowledgePropagation)
   .>>> close
 
-simple u g m = withSimpl $
-  identity
+simple sl un gr mi =
+  sliceWhen (const $ sl == Slice)
+  .>>> try unsatRules
+  .>>> try unsatPaths
+  .>>> try unreachableRules
   .>>> fromIts
-  .>>> when (u == Unfold) unfold
   .>>> addSinks
-  .>>> decompose g
-  .>>> abstractSize m
+  .>>> when (un == Unfold) unfold
+  .>>> decompose gr
+  .>>> abstractSize mi
   .>>> abstractFlow
   .>>> analyse
   .>>> close
 
-
-goal sts = best cmpTimeUB [ timeoutRemaining st | st <- sts ]
-
-prep = (unsatPaths .>>> fromIts .>>> unfold) .<|> (fromIts)
-
-more greedy =
-  withArgumentFilter $ withSimpl $ fastest [rank, lare] where
+strategic gr mi =
+  sliceWhen ((> 12) . length . args . startterm_)
+  .>>> try unsatRules
+  .>>> try unreachableRules
+  .>>> ranking .<|> lare
+  where
+  ranking =
+    try unsatPaths
+    .>>> try unreachableRules
+    .>>> try boundTrivialSCCs
+    .>>> rank
   lare =
-    identity
-    .>>> prep
+    (unsatPaths .>>> fromIts .>>> unfold) .<|> fromIts
     .>>> addSinks
-    .>>> decompose greedy
-    .>>> goal [ flow Minimize .>>> close, flow NoMinimize .>>> close ]
-  flow :: Minimize -> Strategy Decomposition Its
-  flow minimize =
-    identity
-    .>>> abstractSize minimize
+    .>>> decompose gr
+    .>>> abstractSize mi
     .>>> abstractFlow
     .>>> analyse
     .>>> close
 
-hard = goal $ rank : [ simple u g m | u <- [Unfold, NoUnfold], g <- [Greedy, NoGreedy], m <- [Minimize, NoMinimize] ]
-
+unlimited =
+  goal $
+    ranking :
+    (sliceWhen (const True) .>>> ranking) :
+      [ simple s u g m
+      | s <- [Slice, NoSlice]
+      , u <- [Unfold, NoUnfold]
+      , g <- [Greedy, NoGreedy]
+      , m <- [Minimize, NoMinimize] ]
+  where
+  goal sts = best cmpTimeUB [ timeoutRemaining st | st <- sts ]
+  ranking  = try unsatRules .>>> try unsatPaths .>>> try unreachableRules .>>> try boundTrivialSCCs .>>> rank
 

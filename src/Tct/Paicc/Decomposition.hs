@@ -1,5 +1,10 @@
--- | This module tries to infer a \loop structure\ of an ITS.
--- Infers a lexicographric combination of linear ranking functions.
+-- | This module tries to infer a \loop structure\ of an ITS (or CFG program).
+--
+-- A Loop structure defines a decomposition of an ITS and is inferred
+--   * using syntactical (SCC decomposition)
+--   * and semantical (disjunctive and lexicographic ranking functions)
+-- criteria.
+--
 {-# LANGUAGE DeriveFoldable, DeriveFunctor, DeriveTraversable, FlexibleContexts, ScopedTypeVariables #-}
 module Tct.Paicc.Decomposition where
 
@@ -12,7 +17,7 @@ import           Data.Maybe                          (fromMaybe)
 import           Data.Monoid                         ((<>))
 
 import           Tct.Its.Data.Complexity             (Complexity)
-import qualified Tct.Its.Data.Complexity             as C (Complexity (..), poly, maximal)
+import qualified Tct.Its.Data.Complexity             as C (Complexity (..), maximal, poly)
 import           Tct.Its.Data.Rule                   (AAtom (..), filterLinear, interpretTerm, toGte)
 import qualified Tct.Its.Data.TransitionGraph        as TG
 
@@ -27,7 +32,9 @@ import qualified Tct.Core.Data                       as T
 import           Tct.Paicc.Problem
 
 
-data Top a = Top a [Tree a]
+-- * Loop Structure
+
+data LoopStructure a = Top a [Tree a]
   deriving (Show, Functor, Foldable, Traversable)
 
 data Tree a
@@ -38,30 +45,20 @@ data Tree a
   , subprograms :: [Tree a] }
   deriving (Show, Functor, Foldable, Traversable)
 
-isComplete :: Top [RuleId] -> Bool
+isComplete :: LoopStructure [RuleId] -> Bool
 isComplete (Top _ ts0)      = all isComplete' ts0 where
   isComplete' (Tree [] [] _ []) = True
   isComplete' (Tree _  cs _ ts)
     | null ts   = not (null cs)
     | otherwise = all isComplete' ts
 
-restrict :: [RuleId] -> Paicc -> Paicc
-restrict irs prob = prob
-  { irules_ = IM.filterWithKey (\k _ -> k `elem` irs) (irules_ prob)
-  , tgraph_ = TG.restrictToNodes irs (tgraph_ prob) }
 
-findM :: (Ord k, Show k) => M.Map k a -> k -> a
-findM m k = error err `fromMaybe` M.lookup k m
-  where err = "Tct.Paicc.LoopStructure: key " ++ show k ++ " not found."
-
-findIM :: IM.IntMap a -> Int -> a
-findIM m k = error err `fromMaybe` IM.lookup k m
-  where err = "Tct.Paicc.LoopStructure: key " ++ show k ++ " not found."
+-- * Ranking Function Synthesis
 
 type Encoding = (PI.PolyInter Fun (SMT.IExpr Int), IM.IntMap (SMT.IExpr Int))
 type Decoding = (PI.PolyInter Fun Int, IM.IntMap Int)
 
--- provides an encoding for linear ranking function
+-- standard encoding for synthesis of linear ranking functions
 orientation :: Rules -> Signature -> SMT.SolverSt (SMT.SmtState Int) Encoding
 orientation irules signature = do
   SMT.setLogic SMT.QF_LIA
@@ -90,12 +87,13 @@ orientation irules signature = do
         (p2,pc2) = P.splitConstantValue (bigAdd cs2)
       return $ absolute (p1 `sub` p2) .&& (pc1 .>= pc2)
 
+  -- all rules are non-increasing
+  -- strict rules are decreasing and bounded
   let
     order (i,r) = do
       fm1 <- decreasing (i,r)
       fm2 <- bounded r
       return (fm1 .&& (strict i .> SMT.zero .=> fm2))
-
 
   SMT.assert (SMT.top :: SMT.Formula Int)
   SMT.assert =<< SMT.bigAndM [ order r | r <- IM.assocs irules ]
@@ -111,6 +109,7 @@ orientation irules signature = do
     interpretFun f = P.substituteVariables (PI.interpretations aint `findM` f) . M.fromList . zip PI.indeterminates
     interpretArg   = P.mapCoefficients SMT.num
 
+
 data Order = Order
   { strict_ :: IS.IntSet
   , bound_  :: Complexity }
@@ -118,8 +117,11 @@ data Order = Order
 
 instance Monoid Order where
   mempty        = Order { strict_ = mempty, bound_ = zero }
-  mappend o1 o2 = Order { strict_ = strict_ o1 <> strict_ o2, bound_ = (bound_ o1) `C.maximal` (bound_ o2) }
+  mappend o1 o2 = Order { strict_ = strict_ o1 <> strict_ o2, bound_ = bound_ o1 `C.maximal` bound_ o2 }
 
+-- Syntactical criteria for strictness.
+-- forward:  a rule is strict if all its successors are strict
+-- backward: a rule is strict if all its predecessors are strict
 propagate :: Paicc -> Order -> Order
 propagate sprob order = order <> Order { strict_ = fp0 propagate' (strict_ order), bound_ = zero } where
   candidates = IM.keysSet (irules_ sprob)
@@ -148,6 +150,8 @@ boundOf fs vs pint = C.poly $ normalize [ interpret int | (f,int) <- M.assocs (P
   interpret int = P.substituteVariables int $ M.fromList $ zip PI.indeterminates [ P.variable v | v <- vs ]
   normalize     = foldr (P.zipCoefficientsWith (max `on` abs)) zero
 
+-- MS:
+-- In practice a flat hierarchy is beneficial (ie nesting implies multiplication).
 data Greedy = Greedy | NoGreedy
   deriving (Eq, Ord, Show, Enum, Bounded)
 
@@ -177,10 +181,13 @@ farkasN prob sprob (encoding, st) order
     _                -> Right order
   where todo = IM.keysSet (irules_ sprob) IS.\\ strict_ order
 
-infer :: Paicc -> T.TctM (Top [RuleId])
+
+-- * Loop Structure Inference
+
+infer :: Paicc -> T.TctM (LoopStructure [RuleId])
 infer = inferWith Greedy
 
-inferWith :: Greedy -> Paicc -> T.TctM (Top [RuleId])
+inferWith :: Greedy -> Paicc -> T.TctM (LoopStructure [RuleId])
 inferWith greedy prob = go0 (IM.keys $ irules_ prob) where
   go0 rs = Top rs <$> sequence [ goN ns | ns <- TG.nonTrivialSCCs (tgraph_ prob) ]
   goN [] = return $ Tree [] [] one []
@@ -196,14 +203,30 @@ inferWith greedy prob = go0 (IM.keys $ irules_ prob) where
         in
         Tree rs is (bound_ order) <$> sequence [ goN ns | ns <- TG.nonTrivialSCCs tgraph' ]
 
+restrict :: [RuleId] -> Paicc -> Paicc
+restrict irs prob = prob
+  { irules_ = IM.filterWithKey (\k _ -> k `elem` irs) (irules_ prob)
+  , tgraph_ = TG.restrictToNodes irs (tgraph_ prob) }
+
 
 -- * Pretty Print
 
-draw :: Show a => Top a -> [String]
+draw :: Show a => LoopStructure a -> [String]
 draw (Top p ts0) = ("P: " ++ show p)  : drawSubTrees ts0 where
   draw' t@Tree{} = ("p:" ++ show (program t) ++ " c: " ++ show (cutset t))  : drawSubTrees (subprograms t)
   shift first other = zipWith (++) (first : repeat other)
   drawSubTrees []     = []
   drawSubTrees [t]    = "|" : shift "`- " "   " (draw' t)
   drawSubTrees (t:ts) = "|" : shift "+- " "|  " (draw' t) ++ drawSubTrees ts
+
+
+-- * Util
+
+findM :: (Ord k, Show k) => M.Map k a -> k -> a
+findM m k = error err `fromMaybe` M.lookup k m
+  where err = "Tct.Paicc.LoopStructure: key " ++ show k ++ " not found."
+
+findIM :: IM.IntMap a -> Int -> a
+findIM m k = error err `fromMaybe` IM.lookup k m
+  where err = "Tct.Paicc.LoopStructure: key " ++ show k ++ " not found."
 

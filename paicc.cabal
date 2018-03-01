@@ -30,6 +30,10 @@ library
     FlexibleContexts
     TypeFamilies
     TypeOperators
+  other-extensions:
+    StandaloneDeriving
+    RecordWildCards
+    ScopedTypeVariables
 
 executable paicc-exe
   main-is:             Main.hs

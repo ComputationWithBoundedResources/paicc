@@ -1,39 +1,41 @@
-module Tct.Paicc 
+-- | This module integrateas /Tct.Paicc.*/ into the TcT framework.
+module Tct.Paicc
   ( Paicc(..)
   , fromIts
   , unfold
   , addSinks
   , Decomposition
+  , Greedy(..)
   , decompose
   , SizeAbstraction
+  , Minimize(..)
   , abstractSize
   , FlowAbstraction
   , abstractFlow
   , analyse
-  , Minimize(..)
-  , Greedy(..)
   ) where
 
-import Control.Monad (when)
-import           Tct.Core.Common.Pretty  (Pretty, pretty)
-import qualified Tct.Core.Common.Pretty  as PP
-import qualified Tct.Core.Common.Xml     as Xml
-import           Tct.Core.Common.Xml     (Xml, toXml)
-import qualified Tct.Core.Data           as T
+
+import           Control.Monad                (when)
+import           Tct.Core.Common.Pretty       (Pretty, pretty)
+import qualified Tct.Core.Common.Pretty       as PP
+import           Tct.Core.Common.Xml          (Xml, toXml)
+import qualified Tct.Core.Common.Xml          as Xml
+import qualified Tct.Core.Data                as T
 
 
-import          Tct.Its (Its)
-import          Tct.Its.Data.LocalSizebounds (Minimize(..))
+import           Tct.Its                      (Its)
+import           Tct.Its.Data.LocalSizebounds (Minimize (..))
 
-import qualified Lare.Analysis                    as LA
-import qualified Lare.Flow                        as LA
-import qualified Lare.Tick                        as LA
+import qualified Lare.Analysis                as LA
+import qualified Lare.Flow                    as LA
+import qualified Lare.Tick                    as LA
 
-import          Tct.Paicc.Problem hiding (fromIts)
-import qualified Tct.Paicc.Problem as P (fromIts)
-import          Tct.Paicc.Decomposition (inferWith, isComplete, Greedy(..), Top, draw)
-import          Tct.Paicc.Abstraction
-import qualified Tct.Paicc.Preprocessor as P
+import           Tct.Paicc.Abstraction
+import           Tct.Paicc.Decomposition      (Greedy (..), LoopStructure, draw, inferWith, isComplete)
+import qualified Tct.Paicc.Preprocessor       as P
+import           Tct.Paicc.Problem            hiding (fromIts)
+import qualified Tct.Paicc.Problem            as P (fromIts)
 
 
 -- * Strategies
@@ -51,13 +53,13 @@ decompose :: Greedy -> Paicc ~> Decomposition
 decompose greedy = T.processor (Decompose greedy)
 
 abstractSize :: Minimize -> Decomposition ~> SizeAbstraction
-abstractSize minimize = T.processor (AbstractSize UseCFG minimize)
+abstractSize minimize = T.processor (AbstractSize minimize)
 
 abstractFlow :: SizeAbstraction ~> FlowAbstraction
 abstractFlow = T.processor AbstractFlow
 
 analyse :: FlowAbstraction ~> ()
-analyse = T.processor LareProcessor
+analyse = T.processor Lare
 
 
 -- * Preprocessing
@@ -93,22 +95,13 @@ instance T.Processor Unfold where
   execute Unfold prob = T.succeedWithId () (P.unfold prob)
 
 
--- * Decompose
+-- * Decomposition
 
 newtype Decompose = Decompose Greedy deriving Show
 
-newtype DecomposeProof = DecomposeProof (Top [RuleId])
-  deriving Show
-
 type Decomposition = (Paicc, DecomposeProof)
 
-instance Pretty DecomposeProof where
-  pretty (DecomposeProof t)= PP.vcat
-    [ PP.text "We construct a looptree:"
-    , PP.indent 2 $ PP.vcat $ PP.text <$> draw t ]
-
-instance Xml DecomposeProof where
-  toXml = Xml.text . show . pretty
+newtype DecomposeProof = DecomposeProof (LoopStructure [RuleId]) deriving Show
 
 instance T.Processor Decompose where
   type ProofObject Decompose = DecomposeProof
@@ -123,13 +116,22 @@ instance T.Processor Decompose where
       then T.succeedWithId proof (prob,proof)
       else T.abortWith proof
 
+instance Pretty DecomposeProof where
+  pretty (DecomposeProof t)= PP.vcat
+    [ PP.text "We construct a looptree:"
+    , PP.indent 2 $ PP.vcat $ PP.text <$> draw t ]
 
--- * Abstract
+instance Xml DecomposeProof where
+  toXml = Xml.text . show . pretty
 
-data AbstractSize = AbstractSize UseGraph Minimize 
-  deriving Show
 
-instance Xml (Paicc, DecomposeProof) where toXml = Xml.text . show . pretty
+instance Xml Decomposition where
+  toXml = Xml.text . show . pretty
+
+
+-- * Size Abstraction
+
+data AbstractSize = AbstractSize Minimize deriving Show
 
 instance T.Processor AbstractSize where
   type ProofObject AbstractSize = ()
@@ -137,16 +139,16 @@ instance T.Processor AbstractSize where
   type Out         AbstractSize = SizeAbstraction
   type Forking     AbstractSize = T.Id
 
-  execute (AbstractSize usegraph minimize) (prob, DecomposeProof tree) =
-    T.succeedWithId () =<< toLareM prob usegraph minimize tree
+  execute (AbstractSize minimize) (prob, DecomposeProof tree) =
+    T.succeedWithId () =<< toLareM prob minimize tree
+
+instance Xml SizeAbstraction where
+  toXml = Xml.text . show . pretty
+
+
+-- * Flow Abstraction
 
 data AbstractFlow = AbstractFlow deriving Show
-
-instance Xml SizeAbstraction where toXml = Xml.text . show . pretty
-instance Xml FlowAbstraction where toXml = Xml.text . show . pretty
-instance Xml LareProof where toXml = Xml.text . show . pretty
-instance Pretty LareProof where pretty (LareProof p) = pretty p
-
 
 instance T.Processor AbstractFlow where
   type ProofObject AbstractFlow = ()
@@ -154,25 +156,27 @@ instance T.Processor AbstractFlow where
   type Out         AbstractFlow = FlowAbstraction
   type Forking     AbstractFlow = T.Id
 
-  execute AbstractFlow (Program vs prob) = T.succeedWithId () $ Program vs' (LA.toFlow vs' prob)
-    where vs' = LA.Counter: LA.Huge : LA.K : vs
+  execute AbstractFlow prob = T.succeedWithId () (toFlow prob)
+
+instance Xml FlowAbstraction where
+  toXml = Xml.text . show . pretty
 
 
--- * LareAnalyise
+-- * Growth-Rate Analysis
 
-data LareProcessor = LareProcessor deriving Show
+data Lare = Lare deriving Show
+
 newtype LareProof = LareProof Proof deriving Show
 
-instance T.Processor LareProcessor where
-  type ProofObject LareProcessor = LareProof
-  type In LareProcessor          = FlowAbstraction
-  type Out LareProcessor         = ()
-  type Forking LareProcessor     = T.Judgement
+instance T.Processor Lare where
+  type ProofObject Lare = LareProof
+  type In Lare          = FlowAbstraction
+  type Out Lare         = ()
+  type Forking Lare     = T.Judgement
 
-  execute LareProcessor (Program vs prob) =
+  execute Lare (Program vs prob) =
     let
       proofM = do
-        -- proof <- LA.convertWith (LA.ticked $ LA.flow vs) prob
         proof <- Right $ LA.convert (LA.ticked $ LA.flow vs) prob
         let bound = LA.boundOfProof proof
         when (bound == LA.Indefinite) (Left "Unknown bound.")
@@ -191,13 +195,19 @@ toComplexity LA.Linear     = T.Poly (Just 1)
 toComplexity LA.Polynomial = T.Poly Nothing
 toComplexity LA.Primrec    = T.Primrec
 
--- * Misc
+instance Pretty LareProof where
+  pretty (LareProof p) = pretty p
 
+instance Xml LareProof where
+  toXml = Xml.text . show . pretty
+
+
+-- * Misc
 
 newtype LoopStructureProcessor = LoopStructure Greedy
   deriving Show
 
-newtype LoopStructureProof = LoopStructureProof (Top [RuleId])
+newtype LoopStructureProof = LoopStructureProof (LoopStructure [RuleId])
   deriving Show
 
 instance T.Processor LoopStructureProcessor where
@@ -236,3 +246,5 @@ instance Xml LoopStructureProof where
 
 -- instance Xml.Xml CycleManiaProof where
 --   toXml = Xml.text . show
+--
+

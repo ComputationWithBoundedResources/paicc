@@ -1,5 +1,6 @@
--- | This module provides \unfolding\ of the rulegraph representation to the nodegraph representation.
+-- | This module provides additional preprocessing and refinement steps.
 module Tct.Paicc.Preprocessor where
+
 
 import qualified Data.IntMap.Strict           as IM
 import qualified Data.Map.Strict              as M
@@ -7,11 +8,22 @@ import qualified Data.Map.Strict              as M
 import qualified Tct.Its.Data.TransitionGraph as TG
 import           Tct.Its.Data.Types           (theSCC)
 
-import qualified Tct.Common.Polynomial as P (variable)
+import qualified Tct.Common.Polynomial        as P (variable)
 
 import           Tct.Paicc.Problem
 
 
+-- MS: v0.2
+-- 'unfold' is a CFG refinement and in practice not always beneficial.
+--   * Duplicates edges, thus additional work for the abstraction.
+--     * Use Memoization for size-abstraction.
+--   * An edge can occur in different loops of the nesting hierarchy, which may duplicate the effect.
+--     * See c.01.koat for an example. Here the effect of the inner loop is propagated to the outer loop.
+-- The implementation currently unfolds the graph completely. Should be made more precise taking the result of
+-- 'unsatPaths' into account.
+
+-- | /Unfolds/ the 'TranstionGraph'. Transforms an edge-based (or rule-based) graph to a node-based graph. It provides
+-- a form of contextualisation based on valid flows in the edge-based graph. Useful in combination with 'unsatPaths'.
 unfold :: Paicc -> Paicc
 unfold prob = Paicc
   { irules_    = allrules
@@ -40,8 +52,8 @@ toRules1 tgraph newkey (i,rule) =
   modFun k a = a{ fun = k (fun a) }
 
 
-
-
+-- | The 'Lare' algorithm infers growth-rate from start nodes to exit nodes.
+-- @addSinks paicc@ adds dedicated exit nodes (if necessary) for all possible flows.
 addSinks :: Paicc -> Paicc
 addSinks prob = Paicc
   { irules_    = irules `IM.union` IM.fromList rules

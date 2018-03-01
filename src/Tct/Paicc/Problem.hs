@@ -1,29 +1,24 @@
+-- | This module provides the problem type.
 module Tct.Paicc.Problem
   ( Paicc(..)
-  , Rules
-  , Rule
-  , ARule(..)
-  , ATerm(..)
-  , RuleId
-  , TGraph
-  , Fun
-  , Var
-  , Signature
   , fromIts
+  , module M
   ) where
+
 
 import           Data.IntMap.Strict           as IM (elems)
 import           Data.Monoid                  ((<>))
 
 import           Tct.Core.Common.Pretty       (Pretty, pretty)
 import qualified Tct.Core.Common.Pretty       as PP
-import           Tct.Core.Common.Xml          (Xml, empty, toXml)
+import           Tct.Core.Common.Xml          (Xml, toXml)
+import qualified Tct.Core.Common.Xml          as Xml
 
 import           Tct.Its.Data.Problem         (Its)
 import qualified Tct.Its.Data.Problem         as I
-import           Tct.Its.Data.TransitionGraph (TGraph)
-import           Tct.Its.Data.Types           (ARule (..), ATerm (..), Fun, Rule, RuleId, Rules, Signature, Var)
-
+import           Tct.Its.Data.TransitionGraph as M (TGraph)
+import           Tct.Its.Data.Types           as M (ARule (..), ATerm (..), Fun, RV (..), Rule, RuleId, Rules,
+                                                    Signature, Var)
 
 data Paicc = Paicc
   { irules_    :: Rules
@@ -46,7 +41,6 @@ instance Pretty Paicc where
     , pp "Rule Graph:" $ pretty (tgraph_ prob) ]
     where pp st p = PP.text st PP.<$$> PP.indent 2 p
 
-
 instance {-# Overlapping #-} Pretty [Rule] where
   pretty es = PP.vcat [ k e | e <- es ] where
     k Rule{lhs=l,rhs=r,con=c} =
@@ -59,5 +53,5 @@ instance {-# Overlapping #-} Pretty [Rule] where
     rlen = maximum [ length $ show $ pretty (rhs e) | e <- es ]
 
 instance Xml Paicc where
-  toXml = const empty
+  toXml = Xml.text . show . pretty
 
