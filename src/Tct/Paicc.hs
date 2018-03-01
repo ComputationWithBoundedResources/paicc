@@ -3,8 +3,11 @@ module Tct.Paicc
   , fromIts
   , unfold
   , addSinks
+  , Decomposition
   , decompose
+  , SizeAbstraction
   , abstractSize
+  , FlowAbstraction
   , abstractFlow
   , analyse
   , Minimize(..)
