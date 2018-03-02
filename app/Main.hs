@@ -1,21 +1,24 @@
-{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE MultiParamTypeClasses, TypeFamilies #-}
 {-# OPTIONS_GHC -fno-warn-missing-signatures -fno-warn-orphans #-}
 module Main (main) where
 
-import Tct.Core
-import Tct.Core.Main      (AnswerFormat (..))
+import           Tct.Core
+import qualified Tct.Core.Data             as T
+import           Tct.Core.Data.Certificate (yesNoCert)
+import           Tct.Core.Main             (AnswerFormat (..))
 
-import Tct.Its
-import Tct.Its.Data.Types (args)
+import           Tct.Its
+import           Tct.Its.Data.Types        (args)
 
-import Tct.Paicc
+import           Tct.Paicc
 
 
 instance Declared Its Its where
   decls =
-    [ SD $ strategy "simple"    () $ simple Slice NoUnfold Greedy Minimize
-    , SD $ strategy "strategic" () $ strategic Greedy Minimize
-    , SD $ strategy "unlimited" () $ unlimited ]
+    [ SD $ strategy "loopstructure"  () $ loopstructure
+    , SD $ strategy "simple"         () $ simple Slice NoUnfold Greedy Minimize
+    , SD $ strategy "strategic"      () $ strategic Greedy Minimize
+    , SD $ strategy "unlimited"      () $ unlimited ]
 
 main :: IO ()
 main = runIts $
@@ -36,6 +39,32 @@ rank =
   try knowledgePropagation
   .>>> te (farkas .>>> try knowledgePropagation)
   .>>> close
+
+loopstructure =
+  try unsatRules
+  .>>> try unsatPaths
+  .>>> try unreachableRules
+  .>>> fromIts
+  .>>> decompose'
+  .>>> close
+  .>>> best cmp
+    [ timeoutRemaining $             decompose'
+    , timeoutRemaining $ unfold .>>> decompose' ]
+  where
+  cmp t1 t2 = compare (T.outcome $ T.certificate t1) (T.outcome $ T.certificate t2)
+  decompose' = ((decompose NoGreedy .>>> yes) .<|> no)
+  yes = T.processor (CloseWith True)  :: T.Strategy Decomposition Its
+  no  = T.processor (CloseWith False) :: T.Strategy Paicc Its
+
+data CloseWith i o = CloseWith Bool deriving Show
+
+instance (ProofData i, Show o) => T.Processor (CloseWith i o) where
+  type ProofObject (CloseWith i o) = ()
+  type In          (CloseWith i o) = i
+  type Out         (CloseWith i o) = o
+  type Forking     (CloseWith i o) = T.Judgement
+  execute (CloseWith b) _          = succeedWith0 () (T.judgement $ yesNoCert b)
+
 
 simple sl un gr mi =
   sliceWhen (const $ sl == Slice)
