@@ -4,7 +4,7 @@ Automated runtime analysis of *Integer Transition Systems* via *growth-rate anal
 
 ## Requirements
 
-This package depends on the [Tyrolean Complexity Tool] (https://github.com/ComputationWithBoundedResources/tct-its/)
+This package depends on the [Tyrolean Complexity Tool](https://github.com/ComputationWithBoundedResources/tct-its/)
 and the [LARE](https://github.com/ComputationWithBoundedResources/lare/) package.
 
 Following executables are required in `$PATH`.
