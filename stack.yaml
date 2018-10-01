@@ -10,7 +10,7 @@ extra-deps:
 - git: https://github.com/computationwithboundedresources/tct-its.git
   commit: 9dddf0c2341bebadec55cac05848de9eab9d0665
 - git: https://github.com/computationwithboundedresources/lare.git
-  commit: a602d1dc789a8649a12af761b4bd13be1b4bc60a
+  commit: b81d3f3ad0b7d6911ae5a827a1e18645e1194377
 - fgl-visualize-0.1.0.1
 - dotgen-0.4.2
 resolver: lts-5.12
