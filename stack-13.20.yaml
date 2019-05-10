@@ -1,0 +1,16 @@
+flags: {}
+packages:
+ - '.'
+extra-deps:
+ - fgl-visualize-0.1.0.1
+ - git: https://github.com/ComputationWithBoundedResources/slogic
+   commit: HEAD
+ - git: https://github.com/ComputationWithBoundedResources/tct-common
+   commit: HEAD
+ - git: https://github.com/ComputationWithBoundedResources/tct-core
+   commit: HEAD
+ - git: https://github.com/ComputationWithBoundedResources/lare
+   commit: HEAD
+ - git: https://github.com/ComputationWithBoundedResources/tct-its
+   commit: HEAD
+resolver: lts-13.20 # ghc-8.6.5

@@ -5,7 +5,7 @@
 --   * and semantical (disjunctive and lexicographic ranking functions)
 -- criteria.
 --
-{-# LANGUAGE DeriveFoldable, DeriveFunctor, DeriveTraversable, FlexibleContexts, ScopedTypeVariables #-}
+{-# LANGUAGE DeriveFoldable, DeriveFunctor, DeriveTraversable, FlexibleContexts, ScopedTypeVariables, CPP #-}
 module Tct.Paicc.Decomposition where
 
 
@@ -14,7 +14,12 @@ import qualified Data.IntMap.Strict                  as IM
 import qualified Data.IntSet                         as IS
 import qualified Data.Map.Strict                     as M
 import           Data.Maybe                          (fromMaybe)
-import           Data.Monoid                         ((<>))
+#if MIN_VERSION_base(4,9,0)
+import Data.Semigroup as Sem
+#endif
+#if !(MIN_VERSION_base(4,8,0))
+import Data.Monoid
+#endif
 
 import           Tct.Its.Data.Complexity             (Complexity)
 import qualified Tct.Its.Data.Complexity             as C (Complexity (..), maximal, poly)
@@ -30,6 +35,7 @@ import qualified Tct.Common.SMT                      as SMT
 import qualified Tct.Core.Data                       as T
 
 import           Tct.Paicc.Problem
+
 
 
 -- * Loop Structure
@@ -110,14 +116,27 @@ orientation irules signature = do
     interpretArg   = P.mapCoefficients SMT.num
 
 
+
 data Order = Order
   { strict_ :: IS.IntSet
   , bound_  :: Complexity }
   deriving Show
 
+appendOrder :: Order -> Order -> Order
+appendOrder o1 o2 = Order { strict_ = strict_ o1 <> strict_ o2, bound_ = bound_ o1 `C.maximal` bound_ o2 }
+
+#if MIN_VERSION_base(4,9,0)
+instance Sem.Semigroup Order where
+  (<>) = appendOrder
+#endif
+
 instance Monoid Order where
   mempty        = Order { strict_ = mempty, bound_ = zero }
-  mappend o1 o2 = Order { strict_ = strict_ o1 <> strict_ o2, bound_ = bound_ o1 `C.maximal` bound_ o2 }
+#if MIN_VERSION_base(4,9,0)
+  mappend = (<>)
+#elif
+  mappend = appendOrder
+#endif
 
 -- Syntactical criteria for strictness.
 -- forward:  a rule is strict if all its successors are strict

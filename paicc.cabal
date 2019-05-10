@@ -1,13 +1,13 @@
 name:                paicc
-version:             0.2.0.1
+version:             0.2.0.2
 synopsis:            Program Analysis meets Implicit Computational Complexity
 -- description:
 homepage:            https://github.com/ComputationWithBoundedResources/paicc#readme
 license:             BSD3
 license-file:        LICENSE
 author:              Michael Schaper
-maintainer:          michael.schaper@uibk.ac.at
-copyright:           Copyright: (c) 2018 Michael Schaper
+maintainer:          michael.schaper@student.uibk.ac.at
+copyright:           Copyright: (c) 2018-2019 Michael Schaper
 category:            Program Analysis
 build-type:          Simple
 extra-source-files:  README.md
@@ -38,7 +38,7 @@ library
 executable paicc-exe
   main-is:             Main.hs
   hs-source-dirs:      app
-  build-depends:       base, tct-core, tct-its, paicc
+  build-depends:       base, tct-core >= 3.2 , tct-its, paicc
   default-language:    Haskell2010
   ghc-options:         -Wall -O3 -threaded -rtsopts -with-rtsopts=-N
   other-extensions:
