@@ -123,7 +123,7 @@ data Order = Order
   deriving Show
 
 appendOrder :: Order -> Order -> Order
-appendOrder o1 o2 = Order { strict_ = strict_ o1 <> strict_ o2, bound_ = bound_ o1 `C.maximal` bound_ o2 }
+appendOrder o1 o2 = Order { strict_ = strict_ o1 `mappend` strict_ o2, bound_ = bound_ o1 `C.maximal` bound_ o2 }
 
 #if MIN_VERSION_base(4,9,0)
 instance Sem.Semigroup Order where
@@ -134,7 +134,7 @@ instance Monoid Order where
   mempty        = Order { strict_ = mempty, bound_ = zero }
 #if MIN_VERSION_base(4,9,0)
   mappend = (<>)
-#elif
+#else
   mappend = appendOrder
 #endif
 
@@ -142,7 +142,7 @@ instance Monoid Order where
 -- forward:  a rule is strict if all its successors are strict
 -- backward: a rule is strict if all its predecessors are strict
 propagate :: Paicc -> Order -> Order
-propagate sprob order = order <> Order { strict_ = fp0 propagate' (strict_ order), bound_ = zero } where
+propagate sprob order = order `mappend` Order { strict_ = fp0 propagate' (strict_ order), bound_ = zero } where
   candidates = IM.keysSet (irules_ sprob)
   propagate' old = IS.fromList
     [ i
@@ -158,7 +158,7 @@ propagate sprob order = order <> Order { strict_ = fp0 propagate' (strict_ order
     | otherwise               = fpN k new (new `IS.union` k new)
 
 update :: Paicc -> Paicc -> Decoding -> Order -> Order
-update prob sprob (pint,stricts) old = old <> Order { strict_ = strict' , bound_ = bound' } where
+update prob sprob (pint,stricts) old = old `mappend` Order { strict_ = strict' , bound_ = bound' } where
   strict' = IM.keysSet $ IM.filter (>0) stricts
   fs      = (fun . head . rhs . findIM (irules_ prob) . fst) `fmap` TG.incoming (tgraph_ prob) (IM.keys $ irules_ sprob)
   bound'  = boundOf fs (domain_ prob) pint
