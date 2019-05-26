@@ -99,7 +99,7 @@ instance T.Processor Unfold where
 
 newtype Decompose = Decompose Greedy deriving Show
 
-type Decomposition = (Paicc, DecomposeProof)
+data Decomposition = Decomposition Paicc DecomposeProof deriving Show
 
 newtype DecomposeProof = DecomposeProof (LoopStructure [RuleId]) deriving Show
 
@@ -113,7 +113,7 @@ instance T.Processor Decompose where
     tree <- inferWith greedy prob
     let proof = DecomposeProof tree
     if isComplete tree
-      then T.succeedWithId proof (prob,proof)
+      then T.succeedWithId proof (Decomposition prob proof)
       else T.abortWith proof
 
 instance Pretty DecomposeProof where
@@ -124,6 +124,11 @@ instance Pretty DecomposeProof where
 instance Xml DecomposeProof where
   toXml = Xml.text . show . pretty
 
+instance Pretty Decomposition where
+  pretty (Decomposition prob proof) = PP.vcat
+    [ pretty prob
+    , PP.text "Loop Structure:"
+    , PP.indent 2 $ pretty proof ]
 
 instance Xml Decomposition where
   toXml = Xml.text . show . pretty
@@ -139,7 +144,7 @@ instance T.Processor AbstractSize where
   type Out         AbstractSize = SizeAbstraction
   type Forking     AbstractSize = T.Id
 
-  execute (AbstractSize minimize) (prob, DecomposeProof tree) =
+  execute (AbstractSize minimize) (Decomposition prob (DecomposeProof tree)) =
     T.succeedWithId () =<< toLareM prob minimize tree
 
 instance Xml SizeAbstraction where
